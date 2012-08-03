@@ -59,7 +59,8 @@ if ($options_all || in_array('slavedb', $options)) {
 
 
 // MEMCACHE
-// Check that all memcache instances are running on this server.
+// Check that memcache instances are running on this site.
+// This check will fail only if all defined memcache instances fail to connect.
 if ($options_all || in_array('memcache', $options)) {
   if (isset($conf['cache_backends']) && isset($conf['memcache_servers'])) {
     // Select PECL memcache/memcached library to use
@@ -79,20 +80,25 @@ if ($options_all || in_array('memcache', $options)) {
     }
     // Test server connections
     if ($extension) {
+      $memcache_errors = array();
       foreach ($conf['memcache_servers'] as $address => $bin) {
         list($ip, $port) = explode(':', $address);
         if ($extension == 'Memcache') {
           if (!memcache_connect($ip, $port)) {
-            $errors[] = 'Memcache bin <em>' . $bin . '</em> at address ' . $address . ' is not available.';
+            $memcache_errors[] = 'Memcache bin <em>' . $bin . '</em> at address ' . $address . ' is not available.';
           }
         }
         elseif ($extension == 'Memcached') {
           $m = new Memcached();
           $m->addServer($ip, $port);
           if ($m->getVersion() == FALSE) {
-            $errors[] = 'Memcached bin <em>' . $bin . '</em> at address ' . $address . ' is not available.';
+            $memcache_errors[] = 'Memcached bin <em>' . $bin . '</em> at address ' . $address . ' is not available.';
           }
         }
+      }
+      // All memcache servers return error
+      if (count($memcache_errors) == count($conf['memcache_servers'])) {
+        $errors = array_merge($errors, $memcache_errors);
       }
     }
   }
