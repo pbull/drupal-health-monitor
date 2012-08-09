@@ -3,7 +3,7 @@
 /**
  * Script to monitor health of a Drupal 7 site, useful for monitoring, load balancers, etc.
  * Takes an optional comma-separated string of options in the querystring:
- *   health.php?options=db,slavedb,memcache,files
+ *   monitor.php?options=db,slavedb,memcache,files
  */
 
 /**
