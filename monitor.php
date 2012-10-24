@@ -2,7 +2,8 @@
 
 /**
  * Script to monitor health of a Drupal 7 site, useful for monitoring, load balancers, etc.
- * Takes an optional comma-separated string of options in the querystring:
+ * Takes an optional comma-separated string of options in the querystring to only run the
+ * requested checks. Default is to run all checks:
  *   monitor.php?options=db,slavedb,memcache,files
  */
 
@@ -63,42 +64,52 @@ if ($options_all || in_array('slavedb', $options)) {
 // This check will fail only if all defined memcache instances fail to connect.
 if ($options_all || in_array('memcache', $options)) {
   if (isset($conf['cache_backends']) && isset($conf['memcache_servers'])) {
-    // Select PECL memcache/memcached library to use
-    $preferred = variable_get('memcache_extension', NULL);
-    if (isset($preferred) && class_exists($preferred)) {
-      $extension = $preferred;
-    }
-    // If no extension is set, default to Memcache.
-    elseif (class_exists('Memcache')) {
-      $extension = 'Memcache';
-    }
-    elseif (class_exists('Memcached')) {
-      $extension = 'Memcached';
-    }
-    else {
-      $errors[] = 'Memcache and Memcached PECL extensions are not available.';
-    }
-    // Test server connections
-    if ($extension) {
-      $memcache_errors = array();
-      foreach ($conf['memcache_servers'] as $address => $bin) {
-        list($ip, $port) = explode(':', $address);
-        if ($extension == 'Memcache') {
-          if (!memcache_connect($ip, $port)) {
-            $memcache_errors[] = 'Memcache bin <em>' . $bin . '</em> at address ' . $address . ' is not available.';
-          }
-        }
-        elseif ($extension == 'Memcached') {
-          $m = new Memcached();
-          $m->addServer($ip, $port);
-          if ($m->getVersion() == FALSE) {
-            $memcache_errors[] = 'Memcached bin <em>' . $bin . '</em> at address ' . $address . ' is not available.';
-          }
-        }
+    
+    // Confirm that valid path to memcache.inc is defined
+    $memcache_check = count(array_filter($conf['cache_backends'], function($path){
+      return (strrpos($path, "memcache.inc") && file_exists($path));
+    }));
+    
+    // Only continue if memcache is configured in the $conf array
+    if ($memcache_check > 0) {
+      // Select PECL memcache/memcached library to use
+      $preferred = variable_get('memcache_extension', NULL);
+      if (isset($preferred) && class_exists($preferred)) {
+        $extension = $preferred;
       }
-      // All memcache servers return error
-      if (count($memcache_errors) == count($conf['memcache_servers'])) {
-        $errors = array_merge($errors, $memcache_errors);
+      // If no extension is set, default to Memcache.
+      elseif (class_exists('Memcache')) {
+        $extension = 'Memcache';
+      }
+      elseif (class_exists('Memcached')) {
+        $extension = 'Memcached';
+      }
+      else {
+        $errors[] = 'Memcache and Memcached PECL extensions are not available.';
+      }
+      
+      // Test server connections
+      if ($extension) {
+        $memcache_errors = array();
+        foreach ($conf['memcache_servers'] as $address => $bin) {
+          list($ip, $port) = explode(':', $address);
+          if ($extension == 'Memcache') {
+            if (!memcache_connect($ip, $port)) {
+              $memcache_errors[] = 'Memcache bin <em>' . $bin . '</em> at address ' . $address . ' is not available.';
+            }
+          }
+          elseif ($extension == 'Memcached') {
+            $m = new Memcached();
+            $m->addServer($ip, $port);
+            if ($m->getVersion() == FALSE) {
+              $memcache_errors[] = 'Memcached bin <em>' . $bin . '</em> at address ' . $address . ' is not available.';
+            }
+          }
+        }
+        // All memcache servers return error
+        if (count($memcache_errors) == count($conf['memcache_servers'])) {
+          $errors = array_merge($errors, $memcache_errors);
+        }
       }
     }
   }
