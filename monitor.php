@@ -14,15 +14,39 @@
  */
 register_shutdown_function('status_shutdown');
 function status_shutdown() {
+  global $errors;
+  // Print all errors.
+  if ($errors) {
+    $errors[] = 'Errors on this server will cause it to be removed from the load balancer.';
+    header('HTTP/1.1 500 Internal Server Error');
+    print implode("<br />\n", $errors);
+  }
+  else {
+    // Split up this message, to prevent the remote chance of monitoring software
+    // reading the source code if PHP fails and then matching the string.
+    print 'OK' . ' 200';
+  }
   exit();
 }
+
+// Don't cache the response.
+header("Cache-Control: no-cache");
+
+// Build list of errors.
+global $errors;
+$errors = array();
 
 /**
  * Bootstrap Drupal.
  */
-define('DRUPAL_ROOT', getcwd());
-require_once DRUPAL_ROOT . '/includes/bootstrap.inc';
-drupal_bootstrap(DRUPAL_BOOTSTRAP_FULL);
+try {
+  define('DRUPAL_ROOT', getcwd());
+  require_once DRUPAL_ROOT . '/includes/bootstrap.inc';
+  drupal_bootstrap(DRUPAL_BOOTSTRAP_FULL);
+}
+catch (Exception $e) {
+  $errors[] = 'Bootstrap failed.';
+}
 
 // Get options from querystring, default to all options
 $options_all = TRUE;
@@ -33,29 +57,43 @@ if (isset($_GET['options'])) {
   }
 }
 
-// Don't cache the response.
-header("Cache-Control: no-cache");
-
-// Build list of errors.
-$errors = array();
-
 
 // DATABASE: Check that the primary database is active.
 if ($options_all || in_array('db', $options)) {
-  $query = db_select('users', 'u')
-    ->fields('u')
-    ->condition('u.uid', 1, '=');
-  $result = $query->execute();
-  if (!$account = $result->fetchAssoc()) {
-    $errors[] = 'Master database not responding.';
+  try {
+    $query = db_select('users', 'u')
+      ->fields('u')
+      ->condition('u.uid', 1, '=');
+    $result = $query->execute();
+    if (!$account = $result->fetchAssoc()) {
+      $errors[] = 'Master database not responding.';
+    }
+  }
+  catch (Exception $e) {
+    $errors[] = 'Master database connection failed.';
   }
 }
 
 
-// SLAVE DATABASE
-// Check that slave databases are active.
+// SLAVE DATABASE: Check that slave databases are active.
 if ($options_all || in_array('slavedb', $options)) {
-  // TODO: Implement check for slave db.
+  // Database::getConnectionInfo will only return one defined slave, more
+  // comprehensive tools should be employed to monitor the status of mysql servers.
+  $connection_info = Database::getConnectionInfo();
+  if (isset($connection_info['slave'])) {
+    try {
+      $query = db_select('users', 'u', array('target' => 'slave'))
+        ->fields('u')
+        ->condition('u.uid', 1, '=');
+      $result = $query->execute();
+      if (!$account = $result->fetchAssoc()) {
+        $errors[] = 'Slave database not responding.';
+      }
+    }
+    catch (Exception $e) {
+      $errors[] = 'Slave database connection failed.';
+    }
+  }
 }
 
 
@@ -133,18 +171,6 @@ if ($options_all || in_array('files', $options)) {
   }
 }
 
-
-// Print all errors.
-if ($errors) {
-  $errors[] = 'Errors on this server will cause it to be removed from the load balancer.';
-  header('HTTP/1.1 500 Internal Server Error');
-  print implode("<br />\n", $errors);
-}
-else {
-  // Split up this message, to prevent the remote chance of monitoring software
-  // reading the source code if PHP fails and then matching the string.
-  print 'OK' . ' 200';
-}
 
 // Exit immediately, note the shutdown function registered at the top of the file.
 exit();
